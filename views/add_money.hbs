@@ -1,0 +1,27 @@
+<script>
+    $(function() {
+        let first = $("select option:first").attr( "money" );
+        $("[name='money']").val(first);
+        $("[name='money']").attr( "min", first);
+
+        $("[name='currency']").change(function() {
+            let selected = $( "select option:selected" ).attr( "money" );
+            $("[name='money']").val(selected);
+            $("[name='money']").attr( "min", selected);
+        });
+    });
+</script>
+
+{{#if accounts}}
+    <form method="post">
+        <select name="currency" >
+        {{#each accounts}}
+            <option money="{{this.money}}" value="{{this.currency}}">{{this.currency}}</option>
+        {{/each}}
+        </select>
+        <input name="money" type="number" value="" min="">
+        <button type="submit" onclick="javascript: form.action='/add_money';">Add money</button>
+    </form>
+{{else}}
+    <p>You haven't accounts</p>
+{{/if}}

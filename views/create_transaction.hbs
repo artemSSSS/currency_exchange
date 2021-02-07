@@ -1,0 +1,59 @@
+<script>
+    let currencies = {{{currencies}}};
+
+    function updateCurrencyExchange() {
+        $.post('/currency_exchange',
+                {from: $('#currency_from').val(), to: $('#currency_to').val()},
+                function (data) {
+                    $("#currency_exchange_course").val(data['5. Exchange Rate']);
+                });
+    }
+
+    function rebuildSelectTo() {
+        $("#currency_to option").remove();
+        currencies.forEach(row => {
+            if ($('#currency_from').val() === row.currency) {
+                return;
+            }
+            $("#currency_to").append(
+                    $("<option></option>")
+                            .text(row.currency)
+                            .val(row.currency)
+            );
+        });
+    }
+
+    $(function () {
+        $('*[name=date]').appendDtpicker();
+
+        currencies.forEach(row => {
+            $("#currency_from").append(
+                    $("<option></option>")
+                            .text(row.currency)
+                            .val(row.currency)
+            );
+        });
+
+        rebuildSelectTo();
+
+        $('#currency_from').change(function () {
+            rebuildSelectTo();
+            updateCurrencyExchange();
+        });
+    });
+</script>
+
+{{#if error}}
+    <p>{{error}}</p>
+{{else}}
+    <form method="post">
+        <select id="currency_from" name="currency_from">
+        </select>
+        <select id="currency_to" name="currency_to">
+        </select>
+        <input name="money" type="number" min="0">
+        <input id="currency_exchange_course" name="currency_exchange_course" type="number" step="0.01" min="0">
+        <input type="text" name="date" value="">
+        <button type="submit" onclick="javascript: form.action='/create_transaction';">Create transaction</button>
+    </form>
+{{/if}}

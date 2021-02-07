@@ -1,0 +1,13 @@
+{{#if all_currencies}}
+    <form method="post">
+        <select name="currency" >
+        {{#each all_currencies}}
+            <option value="{{this}}">{{this}}</option>
+        {{/each}}
+        </select>
+        <input name="money" type="number">
+        <button type="submit" onclick="javascript: form.action='/create_account';">Create account</button>
+    </form>
+{{else}}
+    <p>You have accounts in all currencies</p>
+{{/if}}

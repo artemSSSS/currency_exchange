@@ -29,15 +29,17 @@ app.use(express.urlencoded());
 
 app.use(express.json());
 
+app.use(express.static('public'));
+
 app.get('/', (request, response) => {
     if (currentUser == null) {
         response.sendFile(path.join(__dirname+'/views/login.html'));
     } else {
         response.render('home', {
             name: currentUser,
-            currentUSDRUB: currentUSDRUB,
-            currentEURRUB: currentEURRUB,
-            currentJPYRUB: currentJPYRUB
+            currentUSDRUB: currentUSDRUB.number,
+            currentEURRUB: currentEURRUB.number,
+            currentJPYRUB: currentJPYRUB.number
         })
     }
 })
@@ -110,48 +112,155 @@ app.get('/accounts', (request, response) => {
     })
 })
 
-'Q05DQ2ROVSK6G8EH'
+app.get('/create_account', (request, response) => {
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('SELECT currency FROM accounts WHERE owner = $1;', [currentUser], function (err, result) {
+            done();
+            if (err) {
+                console.log(err);
+            }
+            let all_currencies = ['RUB', 'USD', 'EUR', 'JPY']
+            result.rows.forEach(row => {
+                const index = all_currencies.indexOf(row.currency);
+                if (index > -1) {
+                    all_currencies.splice(index, 1);
+                }
+            });
+            response.render('create_account', {
+                all_currencies: all_currencies
+            })
+        })
+    })
+})
 
-var currentUSDRUB, currentEURRUB, currentJPYRUB;
+app.post('/create_account', (request, response, next) => {
+    const account = request.body
+
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('INSERT INTO accounts (currency, money, owner) VALUES ($1, $2, $3);', [account.currency, account.money, currentUser], function (err, result) {
+            done();
+            if (err) {
+                console.log(err);
+                next(err)
+            }
+            response.redirect('/accounts')
+        })
+    })
+})
+
+app.get('/logout', (request, response) => {
+    currentUser = null
+
+    response.redirect('/')
+})
+
+app.get('/add_money', (request, response) => {
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('SELECT currency, money FROM accounts WHERE owner = $1;', [currentUser], function (err, result) {
+            done();
+            if (err) {
+                console.log(err);
+            }
+            response.render('add_money', {
+                accounts: result.rows
+            })
+        })
+    })
+})
+
+app.post('/add_money', (request, response, next) => {
+    const account = request.body
+
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('UPDATE accounts SET money = $1 WHERE currency = $2 and owner = $3;', [account.money, account.currency, currentUser], function (err, result) {
+            done();
+            if (err) {
+                console.log(err);
+                next(err)
+            }
+            response.redirect('/accounts')
+        })
+    })
+})
+
+app.get('/create_transaction', (request, response) => {
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('SELECT currency FROM accounts WHERE owner = $1;', [currentUser], function (err, result) {
+            done();
+            if (err) {
+                console.log(err);
+            }
+            let error;
+            if (result.rows.length < 2) {
+                error = 'You must have at least 2 accounts to make a transaction'
+            }
+            response.render('create_transaction', {
+                currencies: JSON.stringify(result.rows),
+                error: error
+            })
+        })
+    })
+})
+
+app.post('/currency_exchange', (request, response, next) => {
+    const currency_exchange = request.body
+
+    rp({
+        uri: 'https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency='
+            + currency_exchange.from + '&to_currency=' + currency_exchange.to + '&apikey=Q05DQ2ROVSK6G8EH',
+        json: true
+    })
+    .then((data) => {
+        response.json(data['Realtime Currency Exchange Rate']);
+    })
+    .catch((err) => {
+        response.json({error:'Error'})
+    })
+})
+
+
+// 'Q05DQ2ROVSK6G8EH'
+
+var currentUSDRUB = { 'number': "Can't get course" }
+var currentEURRUB = { 'number': "Can't get course" }
+var currentJPYRUB = { 'number': "Can't get course" }
 
 getCurrentCurrencies();
 setInterval(() => { getCurrentCurrencies(); }, 10*60*1000);
 
+function getCurrencyExchange(from, to, currentExchange) {
+    rp({
+        uri: 'https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency='
+            + from + '&to_currency=' + to + '&apikey=Q05DQ2ROVSK6G8EH',
+        json: true
+    })
+    .then((data) => {
+        currentExchange.number = data['Realtime Currency Exchange Rate']['5. Exchange Rate']
+    })
+    .catch((err) => {
+        console.log(err)
+        return
+    })
+}
+
 function getCurrentCurrencies() {
-    rp({
-        uri: 'https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=USD&to_currency=RUB&apikey=Q05DQ2ROVSK6G8EH',
-        json: true
-    })
-    .then((data) => {
-        currentUSDRUB = data['Realtime Currency Exchange Rate']['5. Exchange Rate']
-    })
-    .catch((err) => {
-        console.log(err)
-        return
-    })
-
-    rp({
-        uri: 'https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=EUR&to_currency=RUB&apikey=Q05DQ2ROVSK6G8EH',
-        json: true
-    })
-    .then((data) => {
-        currentEURRUB = data['Realtime Currency Exchange Rate']['5. Exchange Rate']
-    })
-    .catch((err) => {
-        console.log(err)
-        return
-    })
-
-    rp({
-        uri: 'https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=JPY&to_currency=RUB&apikey=Q05DQ2ROVSK6G8EH',
-        json: true
-    })
-    .then((data) => {
-        currentJPYRUB = data['Realtime Currency Exchange Rate']['5. Exchange Rate']
-    })
-    .catch((err) => {
-        console.log(err)
-        return
-    })
+    getCurrencyExchange('USD', 'RUB', currentUSDRUB);
+    getCurrencyExchange('EUR', 'RUB', currentEURRUB);
+    getCurrencyExchange('JPY', 'RUB', currentJPYRUB);
 }
 
