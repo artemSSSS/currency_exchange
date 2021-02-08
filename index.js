@@ -33,7 +33,7 @@ app.use(express.static('public'));
 
 app.get('/', (request, response) => {
     if (currentUser == null) {
-        response.sendFile(path.join(__dirname+'/views/login.html'));
+        response.sendFile(path.join(__dirname + '/views/login.html'));
     } else {
         response.render('home', {
             name: currentUser,
@@ -225,23 +225,81 @@ app.post('/currency_exchange', (request, response, next) => {
             + currency_exchange.from + '&to_currency=' + currency_exchange.to + '&apikey=Q05DQ2ROVSK6G8EH',
         json: true
     })
-    .then((data) => {
-        response.json(data['Realtime Currency Exchange Rate']);
-    })
-    .catch((err) => {
-        response.json({error:'Error'})
+        .then((data) => {
+            response.json(data['Realtime Currency Exchange Rate']);
+        })
+        .catch((err) => {
+            response.json({error: 'Error'})
+        })
+})
+
+app.post('/create_transaction', (request, response, next) => {
+    const transaction = request.body
+
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('INSERT INTO transactions (currency_from, currency_to, money, owner, currency_exchange_course, deadline) VALUES ($1, $2, $3, $4, $5, $6);',
+            [transaction.currency_from, transaction.currency_to, transaction.money, currentUser, transaction.currency_exchange_course, transaction.date + ":00"],
+            function (err, result) {
+                done();
+                if (err) {
+                    console.log(err);
+                    next(err)
+                }
+                response.redirect('/transactions')
+            })
     })
 })
 
+app.get('/transactions', (request, response, next) => {
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('SELECT * FROM transactions WHERE owner = $1;', [currentUser], function (err, result) {
+            done();
+            if (err) {
+                console.log(err);
+            }
+            response.render('transactions', {
+                transactions: result.rows
+            })
+        })
+    })
+})
+
+app.post('/delete_transaction', (request, response, next) => {
+    const id = request.body.id
+
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('DELETE FROM transactions WHERE id = $1;',
+            [id],
+            function (err, result) {
+                done();
+                if (err) {
+                    console.log(err);
+                    next(err)
+                }
+                response.redirect('/transactions')
+            })
+    })
+})
 
 // 'Q05DQ2ROVSK6G8EH'
 
-var currentUSDRUB = { 'number': "Can't get course" }
-var currentEURRUB = { 'number': "Can't get course" }
-var currentJPYRUB = { 'number': "Can't get course" }
+var currentUSDRUB = {'number': "Can't get course"}
+var currentEURRUB = {'number': "Can't get course"}
+var currentJPYRUB = {'number': "Can't get course"}
 
 getCurrentCurrencies();
-setInterval(() => { getCurrentCurrencies(); }, 10*60*1000);
+setInterval(() => {
+    getCurrentCurrencies();
+}, 10 * 60 * 1000);
 
 function getCurrencyExchange(from, to, currentExchange) {
     rp({
@@ -249,13 +307,13 @@ function getCurrencyExchange(from, to, currentExchange) {
             + from + '&to_currency=' + to + '&apikey=Q05DQ2ROVSK6G8EH',
         json: true
     })
-    .then((data) => {
-        currentExchange.number = data['Realtime Currency Exchange Rate']['5. Exchange Rate']
-    })
-    .catch((err) => {
-        console.log(err)
-        return
-    })
+        .then((data) => {
+            currentExchange.number = data['Realtime Currency Exchange Rate']['5. Exchange Rate']
+        })
+        .catch((err) => {
+            console.log(err)
+            return
+        })
 }
 
 function getCurrentCurrencies() {
@@ -264,3 +322,96 @@ function getCurrentCurrencies() {
     getCurrencyExchange('JPY', 'RUB', currentJPYRUB);
 }
 
+processTransactions();
+setInterval(() => {
+    processTransactions();
+}, 30 * 1000);
+
+function makeTransaction(transaction, money) {
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+
+        client.query({
+            text: 'UPDATE accounts SET money = money - $1 WHERE currency = $2 and owner = $3;',
+            values: [transaction.money, transaction.currency_from, transaction.owner]
+        });
+
+        client.query({
+            text: 'UPDATE accounts SET money = money + $1 WHERE currency = $2 and owner = $3;',
+            values: [transaction.money * transaction.currency_exchange_course, transaction.currency_to, transaction.owner]
+        });
+
+        client.query({
+            text: 'DELETE FROM transactions WHERE id = $1;',
+            values: [transaction.id]
+        });
+
+        client.on("error", function (err) {
+            console.log(err);
+            return;
+        });
+    })
+}
+
+function checkTransaction(transaction) {
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('SELECT money FROM accounts WHERE owner = $1 and currency = $2;',
+            [transaction.owner, transaction.currency_from], function (err, result) {
+                done();
+                if (err) {
+                    console.log(err);
+                }
+                if (transaction.money <= result.rows[0].money) {
+                    makeTransaction(transaction, result.rows[0].money);
+                }
+            })
+    })
+}
+
+function deleteTransaction(id) {
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('DELETE FROM transactions WHERE id = $1;',
+            [id],
+            function (err, result) {
+                done();
+                if (err) {
+                    console.log(err);
+                }
+            })
+    })
+}
+
+function processTransaction(transaction) {
+    const dateInDB = new Date(transaction.deadline);
+    const dateNow = Date.now();
+    if (dateNow > dateInDB) {
+        deleteTransaction(transaction.id);
+    } else {
+        checkTransaction(transaction);
+    }
+}
+
+function processTransactions() {
+    pool.connect(function (err, client, done) {
+        if (err) {
+            console.log("Can not connect to the DB: " + err);
+        }
+        client.query('SELECT * FROM transactions;', function (err, result) {
+            done();
+            if (err) {
+                console.log(err);
+            }
+            result.rows.forEach(row => {
+                processTransaction(row);
+            });
+        })
+    })
+}
