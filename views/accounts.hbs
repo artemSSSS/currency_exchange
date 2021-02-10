@@ -1,5 +1,20 @@
-{{#each accounts}}
-    <p>{{this}}</p>
+{{#if accounts}}
+<table class="table table-bordered">
+    <thead>
+    <tr>
+        <th scope="col">Currency</th>
+        <th scope="col">Money</th>
+    </tr>
+    </thead>
+    <tbody>
+    {{#each accounts}}
+    <tr>
+        <td>{{this.currency}}</td>
+        <td>{{this.money}}</td>
+    </tr>
+    {{/each}}
+    </tbody>
+</table>
 {{else}}
-    <p>You have no accounts</p>
-{{/each}}
+    <p class="text-center">You have no accounts</p>
+{{/if}}

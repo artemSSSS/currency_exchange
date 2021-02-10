@@ -1,6 +1,23 @@
-<h2>Hello {{name}}</h2>
-
-<h2>USD/RUB {{currentUSDRUB}}</h2>
-<h2>EUR/RUB {{currentEURRUB}}</h2>
-<h2>JPY/RUB {{currentJPYRUB}}</h2>
-
+<h2 class="text-center">Hello {{name}}</h2>
+<table class="table table-bordered">
+    <thead>
+    <tr>
+        <th scope="col">Currency</th>
+        <th scope="col">Exchange</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr>
+        <td>USD/RUB</td>
+        <td>{{currentUSDRUB}}</td>
+    </tr>
+    <tr>
+        <td>EUR/RUB</td>
+        <td>{{currentEURRUB}}</td>
+    </tr>
+    <tr>
+        <td>JPY/RUB</td>
+        <td>{{currentJPYRUB}}</td>
+    </tr>
+    </tbody>
+</table>

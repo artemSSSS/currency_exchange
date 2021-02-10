@@ -3,7 +3,10 @@ const express = require('express')
 const exphbs = require('express-handlebars')
 const rp = require('request-promise')
 const app = express()
+const cookieParser = require('cookie-parser');
+const crypto = require('crypto');
 
+require("./process_transactions");
 
 app.engine('.hbs', exphbs({
     defaultLayout: 'main',
@@ -15,7 +18,7 @@ app.set('view engine', '.hbs')
 app.set('views', path.join(__dirname, 'views'))
 app.listen(3000)
 
-var currentUser = null;
+let sessions = {};
 
 const pg = require('pg');
 const config = {
@@ -26,17 +29,19 @@ const config = {
 const pool = new pg.Pool(config);
 
 app.use(express.urlencoded());
-
 app.use(express.json());
+app.use(express.static('static'));
+app.use(cookieParser());
 
-app.use(express.static('public'));
+let apiKey = 'Q05DQ2ROVSK6G8EH';
 
 app.get('/', (request, response) => {
-    if (currentUser == null) {
+    let token = request.cookies.token;
+    if (sessions[token] === undefined) {
         response.sendFile(path.join(__dirname + '/views/login.html'));
     } else {
         response.render('home', {
-            name: currentUser,
+            name: sessions[token],
             currentUSDRUB: currentUSDRUB.number,
             currentEURRUB: currentEURRUB.number,
             currentJPYRUB: currentJPYRUB.number
@@ -45,20 +50,25 @@ app.get('/', (request, response) => {
 })
 
 app.post('/login', (request, response, next) => {
-    const user = request.body
+    const user = request.body;
+
+    let hash = crypto.createHash('md5').update(user.psw).digest('hex').substring(0, 20);
 
     pool.connect(function (err, client, done) {
         if (err) {
             console.log("Can not connect to the DB: " + err);
         }
-        client.query('INSERT INTO users (name, password) VALUES ($1, $2);', [user.uname, user.psw], function (err, result) {
+        client.query('INSERT INTO users (name, password) VALUES ($1, $2);', [user.uname, hash], function (err, result) {
             done();
             if (err) {
                 console.log(err);
                 next(err)
                 return
             }
-            currentUser = user.uname;
+            let randomNumber=Math.random().toString();
+            randomNumber=randomNumber.substring(2,randomNumber.length);
+            response.cookie('token',randomNumber, { maxAge: 1000 * 3600 * 24 });
+            sessions[randomNumber] = user.uname;
             response.redirect('/')
         })
     })
@@ -69,29 +79,37 @@ app.use((err, request, response, next) => {
 })
 
 app.post('/signup', (request, response) => {
-    const user = request.body
+    const user = request.body;
+
+    let hash = crypto.createHash('md5').update(user.psw).digest('hex').substring(0, 20);
 
     pool.connect(function (err, client, done) {
         if (err) {
             console.log("Can not connect to the DB: " + err);
         }
-        client.query('SELECT name FROM users WHERE name = $1 and password = $2;', [user.uname, user.psw], function (err, result) {
+        client.query('SELECT name FROM users WHERE name = $1 and password = $2;', [user.uname, hash], function (err, result) {
             done();
             if (err) {
                 console.log(err);
                 response.status(400).send(err);
             }
-            if (result.rows.length == 0) {
+            if (result.rows.length === 0) {
                 response.redirect('/?error=' + encodeURIComponent('Incorrect_Credential'));
             } else {
-                currentUser = result.rows[0].name;
+                let randomNumber=Math.random().toString();
+                randomNumber=randomNumber.substring(2,randomNumber.length);
+                response.cookie('token',randomNumber, { maxAge: 1000 * 3600 * 24 });
+                sessions[randomNumber] = result.rows[0].name;
                 response.redirect('/')
             }
         })
     })
 })
 
-app.get('/accounts', (request, response) => {
+app.get('/accounts', authenticationMiddleware(), (request, response) => {
+    let token = request.cookies.token;
+    let currentUser = sessions[token];
+
     pool.connect(function (err, client, done) {
         if (err) {
             console.log("Can not connect to the DB: " + err);
@@ -101,18 +119,17 @@ app.get('/accounts', (request, response) => {
             if (err) {
                 console.log(err);
             }
-            let accounts = []
-            result.rows.forEach(row => {
-                accounts.push(row.money + " " + row.currency)
-            });
             response.render('accounts', {
-                accounts: accounts
+                accounts: result.rows
             })
         })
     })
 })
 
-app.get('/create_account', (request, response) => {
+app.get('/create_account', authenticationMiddleware(), (request, response) => {
+    let token = request.cookies.token;
+    let currentUser = sessions[token];
+
     pool.connect(function (err, client, done) {
         if (err) {
             console.log("Can not connect to the DB: " + err);
@@ -136,8 +153,10 @@ app.get('/create_account', (request, response) => {
     })
 })
 
-app.post('/create_account', (request, response, next) => {
-    const account = request.body
+app.post('/create_account', authenticationMiddleware(), (request, response, next) => {
+    const account = request.body;
+    let token = request.cookies.token;
+    let currentUser = sessions[token];
 
     pool.connect(function (err, client, done) {
         if (err) {
@@ -155,12 +174,15 @@ app.post('/create_account', (request, response, next) => {
 })
 
 app.get('/logout', (request, response) => {
-    currentUser = null
+    response.clearCookie('token');
 
     response.redirect('/')
 })
 
-app.get('/add_money', (request, response) => {
+app.get('/add_money', authenticationMiddleware(), (request, response) => {
+    let token = request.cookies.token;
+    let currentUser = sessions[token];
+
     pool.connect(function (err, client, done) {
         if (err) {
             console.log("Can not connect to the DB: " + err);
@@ -177,8 +199,10 @@ app.get('/add_money', (request, response) => {
     })
 })
 
-app.post('/add_money', (request, response, next) => {
-    const account = request.body
+app.post('/add_money', authenticationMiddleware(), (request, response, next) => {
+    const account = request.body;
+    let token = request.cookies.token;
+    let currentUser = sessions[token];
 
     pool.connect(function (err, client, done) {
         if (err) {
@@ -195,7 +219,10 @@ app.post('/add_money', (request, response, next) => {
     })
 })
 
-app.get('/create_transaction', (request, response) => {
+app.get('/create_transaction', authenticationMiddleware(), (request, response) => {
+    let token = request.cookies.token;
+    let currentUser = sessions[token];
+
     pool.connect(function (err, client, done) {
         if (err) {
             console.log("Can not connect to the DB: " + err);
@@ -217,12 +244,12 @@ app.get('/create_transaction', (request, response) => {
     })
 })
 
-app.post('/currency_exchange', (request, response, next) => {
-    const currency_exchange = request.body
+app.post('/currency_exchange', authenticationMiddleware(), (request, response, next) => {
+    const currency_exchange = request.body;
 
     rp({
         uri: 'https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency='
-            + currency_exchange.from + '&to_currency=' + currency_exchange.to + '&apikey=Q05DQ2ROVSK6G8EH',
+            + currency_exchange.from + '&to_currency=' + currency_exchange.to + '&apikey=' + apiKey,
         json: true
     })
         .then((data) => {
@@ -233,8 +260,10 @@ app.post('/currency_exchange', (request, response, next) => {
         })
 })
 
-app.post('/create_transaction', (request, response, next) => {
-    const transaction = request.body
+app.post('/create_transaction', authenticationMiddleware(), (request, response, next) => {
+    const transaction = request.body;
+    let token = request.cookies.token;
+    let currentUser = sessions[token];
 
     pool.connect(function (err, client, done) {
         if (err) {
@@ -253,7 +282,10 @@ app.post('/create_transaction', (request, response, next) => {
     })
 })
 
-app.get('/transactions', (request, response, next) => {
+app.get('/transactions', authenticationMiddleware(), (request, response, next) => {
+    let token = request.cookies.token;
+    let currentUser = sessions[token];
+
     pool.connect(function (err, client, done) {
         if (err) {
             console.log("Can not connect to the DB: " + err);
@@ -270,8 +302,8 @@ app.get('/transactions', (request, response, next) => {
     })
 })
 
-app.post('/delete_transaction', (request, response, next) => {
-    const id = request.body.id
+app.post('/delete_transaction', authenticationMiddleware(), (request, response, next) => {
+    const id = request.body.id;
 
     pool.connect(function (err, client, done) {
         if (err) {
@@ -290,11 +322,19 @@ app.post('/delete_transaction', (request, response, next) => {
     })
 })
 
-// 'Q05DQ2ROVSK6G8EH'
+function authenticationMiddleware () {
+    return function (req, res, next) {
+        let token = req.cookies.token;
+        if (sessions[token] !== undefined) {
+            return next()
+        }
+        res.redirect('/')
+    }
+}
 
-var currentUSDRUB = {'number': "Can't get course"}
-var currentEURRUB = {'number': "Can't get course"}
-var currentJPYRUB = {'number': "Can't get course"}
+let currentUSDRUB = {'number': "Can't get course"}
+let currentEURRUB = {'number': "Can't get course"}
+let currentJPYRUB = {'number': "Can't get course"}
 
 getCurrentCurrencies();
 setInterval(() => {
@@ -304,7 +344,7 @@ setInterval(() => {
 function getCurrencyExchange(from, to, currentExchange) {
     rp({
         uri: 'https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency='
-            + from + '&to_currency=' + to + '&apikey=Q05DQ2ROVSK6G8EH',
+            + from + '&to_currency=' + to + '&apikey=' + apiKey,
         json: true
     })
         .then((data) => {
@@ -322,96 +362,4 @@ function getCurrentCurrencies() {
     getCurrencyExchange('JPY', 'RUB', currentJPYRUB);
 }
 
-processTransactions();
-setInterval(() => {
-    processTransactions();
-}, 30 * 1000);
 
-function makeTransaction(transaction, money) {
-    pool.connect(function (err, client, done) {
-        if (err) {
-            console.log("Can not connect to the DB: " + err);
-        }
-
-        client.query({
-            text: 'UPDATE accounts SET money = money - $1 WHERE currency = $2 and owner = $3;',
-            values: [transaction.money, transaction.currency_from, transaction.owner]
-        });
-
-        client.query({
-            text: 'UPDATE accounts SET money = money + $1 WHERE currency = $2 and owner = $3;',
-            values: [transaction.money * transaction.currency_exchange_course, transaction.currency_to, transaction.owner]
-        });
-
-        client.query({
-            text: 'DELETE FROM transactions WHERE id = $1;',
-            values: [transaction.id]
-        });
-
-        client.on("error", function (err) {
-            console.log(err);
-            return;
-        });
-    })
-}
-
-function checkTransaction(transaction) {
-    pool.connect(function (err, client, done) {
-        if (err) {
-            console.log("Can not connect to the DB: " + err);
-        }
-        client.query('SELECT money FROM accounts WHERE owner = $1 and currency = $2;',
-            [transaction.owner, transaction.currency_from], function (err, result) {
-                done();
-                if (err) {
-                    console.log(err);
-                }
-                if (transaction.money <= result.rows[0].money) {
-                    makeTransaction(transaction, result.rows[0].money);
-                }
-            })
-    })
-}
-
-function deleteTransaction(id) {
-    pool.connect(function (err, client, done) {
-        if (err) {
-            console.log("Can not connect to the DB: " + err);
-        }
-        client.query('DELETE FROM transactions WHERE id = $1;',
-            [id],
-            function (err, result) {
-                done();
-                if (err) {
-                    console.log(err);
-                }
-            })
-    })
-}
-
-function processTransaction(transaction) {
-    const dateInDB = new Date(transaction.deadline);
-    const dateNow = Date.now();
-    if (dateNow > dateInDB) {
-        deleteTransaction(transaction.id);
-    } else {
-        checkTransaction(transaction);
-    }
-}
-
-function processTransactions() {
-    pool.connect(function (err, client, done) {
-        if (err) {
-            console.log("Can not connect to the DB: " + err);
-        }
-        client.query('SELECT * FROM transactions;', function (err, result) {
-            done();
-            if (err) {
-                console.log(err);
-            }
-            result.rows.forEach(row => {
-                processTransaction(row);
-            });
-        })
-    })
-}

@@ -8,9 +8,31 @@ function delete_transaction(id) {
 }
 </script>
 
-{{#each transactions}}
-    <p>{{this.currency_from}} {{this.currency_to}} {{this.money}} {{this.currency_exchange_course}} {{this.deadline}}</p>
-    <button onclick="delete_transaction({{this.id}})">Delete transaction</button>
+{{#if transactions}}
+    <table class="table table-bordered">
+        <thead>
+        <tr>
+            <th scope="col">Currency from</th>
+            <th scope="col">Money</th>
+            <th scope="col">Currency to</th>
+            <th scope="col">Currency exchange course</th>
+            <th scope="col">Deadline</th>
+            <th scope="col"></th>
+        </tr>
+        </thead>
+        <tbody>
+        {{#each transactions}}
+            <tr>
+                <td>{{this.currency_from}}</td>
+                <td>{{this.money}}</td>
+                <td>{{this.currency_to}}</td>
+                <td>{{this.currency_exchange_course}}</td>
+                <td>{{this.deadline}}</td>
+                <td><button class="btn btn-danger" onclick="delete_transaction({{this.id}})">Delete transaction</button></td>
+            </tr>
+        {{/each}}
+        </tbody>
+    </table>
 {{else}}
-    <p>You have no transactions</p>
-{{/each}}
+    <p class="text-center">You have no transactions</p>
+{{/if}}
