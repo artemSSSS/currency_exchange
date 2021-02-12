@@ -5,7 +5,7 @@
         $.post('/currency_exchange',
                 {from: $('#currency_from').val(), to: $('#currency_to').val()},
                 function (data) {
-                    $("#currency_exchange_course").val(Number(data['5. Exchange Rate']).toFixed(2));
+                    $("#currency_exchange_course").val(Number(data['course']).toFixed(2));
                 });
     }
 
